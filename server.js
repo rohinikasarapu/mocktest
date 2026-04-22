@@ -69,13 +69,25 @@ app.get("/questions", async (req, res) => {
 
 // ➤ Login
 app.post("/login", async (req, res) => {
-  try {
-    const user = new User(req.body);
-    const savedUser = await user.save();
-    res.json({ message: "Saved", userId: savedUser._id });
-  } catch (err) {
-    res.status(500).json({ error: "Failed to save user" });
-  }
+    try {
+        console.log("📥 Registration Data:", req.body); // Debugging kosam log
+
+        const user = new User({
+            fullname: req.body.fullname,
+            mobile: req.body.mobile,
+            collegename: req.body.collegename,
+            location: req.body.location,
+            interScored: Number(req.body.interScored), // Frontend nundi vache marks
+            interMax: Number(req.body.interMax),       // Frontend nundi vache max marks
+            branches: req.body.branches
+        });
+
+        const savedUser = await user.save();
+        res.json({ message: "Saved", userId: savedUser._id });
+    } catch (err) {
+        console.error("❌ Login Error:", err);
+        res.status(500).json({ error: "Failed to save user" });
+    }
 });
 
 // ➤ Submit Test (🔥 FINAL REPAIRED VERSION)
