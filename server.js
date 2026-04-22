@@ -49,7 +49,7 @@ const Result = mongoose.model("Result", {
   accuracy: String,
   createdAt: { type: Date, default: Date.now }
 });
-
+console.log("TEST 1");
 // ================= ROUTES =================
 
 // ➤ Get Questions
