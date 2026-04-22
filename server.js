@@ -24,7 +24,6 @@ const User = mongoose.model("Users", {
   interScored: Number,
   interMax: Number,
   branches: [String],
-  marksScored: { type: Number, default: 0 }, // Score update kosam
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -57,20 +56,17 @@ const Result = mongoose.model("Result", {
 app.get("/questions", async (req, res) => {
   try {
     const data = await Question.find();
-
     // shuffle
     for (let i = data.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [data[i], data[j]] = [data[j], data[i]];
     }
-
-    const limited = data.slice(0, 160); // ✅ IMPORTANT
-
-    res.json(limited);
+    res.json(data);
   } catch (err) {
     res.status(500).send("Error fetching questions");
   }
 });
+
 // ➤ Login
 app.post("/login", async (req, res) => {
   try {
