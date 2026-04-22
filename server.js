@@ -12,8 +12,8 @@ app.use(express.urlencoded({ extended: true }));
 
 // ================= DB CONNECT =================
 mongoose.connect(process.env.MONGO_URI)
-.then(()=>console.log("✅ Atlas Connected"))
-.catch(err=>console.log("❌ DB Error:", err));
+.then(() => console.log("✅ Atlas Connected"))
+.catch(err => console.log("❌ DB Error:", err));
 
 // ================= MODELS =================
 const User = mongoose.model("Users", {
@@ -21,9 +21,10 @@ const User = mongoose.model("Users", {
   mobile: String,
   collegename: String,
   location: String,
-  marksScored: { type: Number, default: 0 },
-  marksMax: { type: Number, default: 160 },
-  branches: { type: [String], default: [] },
+  interScored: Number,
+  interMax: Number,
+  branches: [String],
+  marksScored: { type: Number, default: 0 }, // Score update kosam
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -52,17 +53,6 @@ const Result = mongoose.model("Result", {
 
 // ================= ROUTES =================
 
-// ➤ Add Question
-app.post("/questions", async (req, res) => {
-  try {
-    const q = new Question(req.body);
-    await q.save();
-    res.send("✅ Question Added");
-  } catch (err) {
-    res.status(500).send(err.message);
-  }
-});
-
 // ➤ Get Questions
 app.get("/questions", async (req, res) => {
   try {
@@ -74,116 +64,94 @@ app.get("/questions", async (req, res) => {
       [data[i], data[j]] = [data[j], data[i]];
     }
 
-    res.json(data);
+    const limited = data.slice(0, 160); // ✅ IMPORTANT
+
+    res.json(limited);
   } catch (err) {
-    console.log(err);
-    res.status(500).send("Error");
+    res.status(500).send("Error fetching questions");
   }
 });
-
 // ➤ Login
 app.post("/login", async (req, res) => {
   try {
-    const user = new User({
-      fullname: req.body.fullname,
-      mobile: req.body.mobile,
-      collegename: req.body.collegename,
-      location: req.body.location,
-      marksScored: 0,
-      marksMax: 160,
-      branches: req.body.branches || [],
-      createdAt: new Date()
-    });
-
+    const user = new User(req.body);
     const savedUser = await user.save();
-
     res.json({ message: "Saved", userId: savedUser._id });
-
   } catch (err) {
-    console.log(err);
-    res.status(500).json({ error: "Failed" });
+    res.status(500).json({ error: "Failed to save user" });
   }
 });
 
-// ➤ Submit Test (🔥 FIXED)
+// ➤ Submit Test (🔥 FINAL REPAIRED VERSION)
 app.post("/submit", async (req, res) => {
   try {
     const { studentId, answers } = req.body;
 
-    console.log("📥 SUBMIT:", studentId);
-
-    if (!studentId || !answers) {
-      return res.status(400).json({ error: "Invalid data" });
-    }
-
-    const questions = await Question.find();
-
-    let attempted = 0;
-    let correct = 0;
-
-    // 🔥 INDEX BASED MATCHING (FIX)
-    answers.forEach((ans, index) => {
-
-      const q = questions[index];
-
-      if (ans.marked !== -1) attempted++;
-
-      if (q && ans.marked === q.answer) {
-        correct++;
-      }
-
-    });
-
-    const wrong = attempted - correct;
-    const unattempted = questions.length - attempted;
-    const accuracy = attempted
-      ? ((correct / attempted) * 100).toFixed(2)
-      : 0;
-
+    // 1. Check if user exists and get fullname
     const user = await User.findById(studentId);
-
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
 
-    // update user score
-    await User.findByIdAndUpdate(studentId, {
-      marksScored: correct
+    // 2. Fetch only the questions that match user's set (via qNo)
+    const qNos = answers.map(a => a.qNo);
+    const questionsFromDb = await Question.find({ qNo: { $in: qNos } });
+
+    let attempted = 0;
+    let correct = 0;
+
+    answers.forEach((ans) => {
+      // Logic check: Find question in DB by its qNo
+      const q = questionsFromDb.find(dbQ => dbQ.qNo === ans.qNo);
+      
+      // 'marked' 0 ante unattempted, so anything else is an attempt
+      if (ans.marked !== 0 && ans.marked !== undefined) {
+        attempted++;
+        // Type matching safety: Use Number()
+        if (q && Number(ans.marked) === Number(q.answer)) {
+          correct++;
+        }
+      }
     });
 
-    // save result
-    await Result.create({
+    const fixedTotal = 160; // 800 problem solved here
+    const unattempted = fixedTotal - attempted;
+    const wrong = attempted - correct;
+    const accuracyVal = attempted > 0 ? ((correct / attempted) * 100).toFixed(2) : 0;
+
+    // 3. Update result in database
+    const savedResult = await Result.create({
       studentId: user._id,
-      fullname: user.fullname,
+      fullname: user.fullname, 
       score: correct,
-      total: questions.length,
+      total: fixedTotal,
       attempted,
       correct,
       wrong,
       unattempted,
-      accuracy: `${accuracy}%`
+      accuracy: `${accuracyVal}%`
     });
 
-    res.json({
-      student: user.fullname,
-      score: correct,
-      total: questions.length,
-      attempted,
-      correct,
-      wrong,
-      unattempted,
-      accuracy
+    // 4. Also update the user's marks in User collection
+    await User.findByIdAndUpdate(studentId, { marksScored: correct });
+
+    console.log(`✅ Success: ${user.fullname} scored ${correct}/${fixedTotal}`);
+    
+    res.json({ 
+        success: true, 
+        score: correct, 
+        total: fixedTotal,
+        unattempted: unattempted 
     });
 
   } catch (err) {
-    console.log("❌ ERROR:", err);
-    res.status(500).json({ error: "Server error" });
+    console.log("❌ SUBMIT ERROR:", err);
+    res.status(500).json({ error: "Server error during submission" });
   }
 });
 
 // ================= SERVER =================
 const PORT = process.env.PORT || 5000;
-
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
